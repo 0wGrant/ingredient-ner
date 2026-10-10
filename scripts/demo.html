@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ингредиенты и аллергены</title>
+<style>
+  :root {
+    --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #dddcd6; --panel: #ffffff;
+    --present: #fde68a; --optional: #bfdbfe; --absent: #e5e5e5; --contains: #b91c1c; --may: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --fg: #ececea; --muted: #a3a39c; --line: #34342f; --panel: #1f1f1d;
+      --present: #78590f; --optional: #1e3a8a; --absent: #3f3f3c; --contains: #f87171; --may: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  textarea { width: 100%; min-height: 140px; padding: 12px; border: 1px solid var(--line); border-radius: 8px;
+             background: var(--panel); color: var(--fg); font: inherit; resize: vertical; }
+  button { margin-top: 8px; padding: 8px 16px; border: 0; border-radius: 8px; background: var(--fg); color: var(--bg);
+           font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  section { margin-top: 24px; }
+  h2 { font-size: 14px; font-weight: 600; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+  #text { white-space: pre-wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  mark { color: inherit; border-radius: 3px; padding: 0 2px; cursor: help; }
+  mark.present { background: var(--present); }
+  mark.optional { background: var(--optional); }
+  mark.absent { background: var(--absent); text-decoration: line-through; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { padding: 2px 10px; border-radius: 999px; border: 1px solid currentColor; font-size: 14px; }
+  .contains { color: var(--contains); }
+  .may { color: var(--may); }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ингредиенты и аллергены</h1>
+  <textarea id="input" placeholder="Описание или шаги рецепта"></textarea>
+  <button id="run">Разобрать</button>
+
+  <section id="result" hidden>
+    <h2>Текст</h2>
+    <div id="text"></div>
+    <div class="legend">
+      <span><mark class="present">в блюде</mark></span>
+      <span><mark class="optional">по желанию</mark></span>
+      <span><mark class="absent">нет в блюде</mark></span>
+    </div>
+
+    <section>
+      <h2>Содержит</h2>
+      <div id="contains" class="list"></div>
+    </section>
+    <section>
+      <h2>Может содержать</h2>
+      <div id="may" class="list"></div>
+    </section>
+  </section>
+</main>
+<script>
+  const input = document.getElementById("input");
+  const button = document.getElementById("run");
+
+  function renderText(text, mentions) {
+    const box = document.getElementById("text");
+    box.replaceChildren();
+    let pos = 0;
+    for (const m of [...mentions].sort((a, b) => a.start - b.start)) {
+      box.append(text.slice(pos, m.start));
+      const mark = document.createElement("mark");
+      mark.className = m.status;
+      mark.textContent = text.slice(m.start, m.end);
+      const names = m.candidates.flat().join(", ") || "нет в справочнике";
+      const allergens = Object.entries(m.allergens).map(([a, l]) => `${a} (${l === "contains" ? "содержит" : "может"})`);
+      mark.title = names + (allergens.length ? "\n→ " + allergens.join(", ") : "");
+      box.append(mark);
+      pos = m.end;
+    }
+    box.append(text.slice(pos));
+  }
+
+  function renderList(id, names, cls) {
+    const box = document.getElementById(id);
+    box.replaceChildren();
+    if (!names.length) {
+      const empty = document.createElement("span");
+      empty.className = "empty";
+      empty.textContent = "—";
+      box.append(empty);
+    }
+    for (const name of names.sort()) {
+      const chip = document.createElement("span");
+      chip.className = "chip " + cls;
+      chip.textContent = name;
+      box.append(chip);
+    }
+  }
+
+  async function run() {
+    const text = input.value;
+    if (!text.trim()) return;
+    button.disabled = true;
+    try {
+      const response = await fetch("/analyze", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text}),
+      });
+      const data = await response.json();
+      renderText(text, data.mentions);
+      const levels = Object.entries(data.allergens);
+      renderList("contains", levels.filter(([, l]) => l === "contains").map(([a]) => a), "contains");
+      renderList("may", levels.filter(([, l]) => l === "may").map(([a]) => a), "may");
+      document.getElementById("result").hidden = false;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  button.addEventListener("click", run);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
+</script>
+</body>
+</html>

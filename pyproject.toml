@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ingredient-ner"
+version = "0.1.0"
+description = "Извлечение упоминаний ингредиентов из русских рецептов"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "datasets>=2.18",
+    "pymorphy3>=2.0",
+    "requests>=2.31",
+    "torch>=2.2",
+    "transformers>=4.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ingredient_ner = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
