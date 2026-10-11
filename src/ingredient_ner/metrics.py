@@ -69,6 +69,24 @@ def bootstrap_f1(gold: dict, pred: dict, n_samples: int = N_SAMPLES, seed: int =
     return _interval(scores, level)
 
 
+def permutation_test(counts_a: list[tuple[int, int, int]], counts_b: list[tuple[int, int, int]], score,
+                     n_samples: int = N_SAMPLES, seed: int = 0) -> float:
+    """p-значение разности метрики двух систем: перестановки систем внутри документов"""
+    if len(counts_a) != len(counts_b) or not counts_a:
+        raise ValueError("Нужны счётчики двух систем по одним и тем же документам")
+
+    def gap(a, b):
+        return abs(score(*map(sum, zip(*a))) - score(*map(sum, zip(*b))))
+
+    observed = gap(counts_a, counts_b)
+    rng = random.Random(seed)
+    hits = 0
+    for _ in range(n_samples):
+        swapped = [(b, a) if rng.random() < 0.5 else (a, b) for a, b in zip(counts_a, counts_b)]
+        hits += gap([a for a, _b in swapped], [b for _a, b in swapped]) >= observed - 1e-12
+    return (hits + 1) / (n_samples + 1)
+
+
 def paired_bootstrap(gold: dict, pred_a: dict, pred_b: dict, n_samples: int = N_SAMPLES, seed: int = 0,
                      level: float = 0.95) -> tuple[float, float]:
     """Интервал F1(b) − F1(a) на общих выборках документов"""

@@ -9,7 +9,8 @@ from transformers import AutoModelForTokenClassification, AutoTokenizer
 from ingredient_ner.bio import LABELS
 from ingredient_ner.dictionary import lemmatizer, predict_dictionary
 from ingredient_ner.jsonl import append_jsonl, read_jsonl
-from ingredient_ner.metrics import bootstrap_f1, evaluate, match_spans, paired_bootstrap
+from ingredient_ner.metrics import (bootstrap_f1, document_counts, evaluate, match_spans, paired_bootstrap,
+                                   permutation_test, prf)
 from ingredient_ner.ner import predict_spans
 from ingredient_ner.paths import MODELS, NER
 from ingredient_ner.recipes import load_recipes
@@ -81,11 +82,16 @@ def main():
     if not args.model:
         return
 
-    print("\nразность F1, 95% парный интервал:")
+    print("\nразность F1: 95% интервал — парный бутстреп, p — перестановочный тест")
+    urls = sorted(gold)
+    model_counts = [document_counts(gold[u], systems["модель"].get(u, [])) for u in urls]
     for name in ("словарь", "словарь + фильтр"):
         low, high = paired_bootstrap(gold, systems[name], systems["модель"])
+        counts = [document_counts(gold[u], systems[name].get(u, [])) for u in urls]
+        p_value = permutation_test(counts, model_counts, lambda tp, fp, fn: prf(tp, fp, fn)["f1"])
         diff = results["модель"]["f1"] - results[name]["f1"]
-        print(f"  модель − {name:17} {diff:+.3f} [{low:+.3f}, {high:+.3f}]")
+        results[name] |= {"diff_interval": [low, high], "p": p_value}
+        print(f"  модель − {name:17} {diff:+.3f} [{low:+.3f}, {high:+.3f}]  p = {p_value:.4f}")
 
     errors = model_errors(gold, systems["модель"])
     print(f"\nошибки модели: {dict(Counter(kind for kind, *_rest in errors))}")

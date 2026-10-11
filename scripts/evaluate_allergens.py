@@ -11,7 +11,7 @@ from ingredient_ner.context import LEXICON, mention_statuses
 from ingredient_ner.dictionary import lemmatizer, predict_dictionary
 from ingredient_ner.dish_metrics import bootstrap_fbeta, fbeta, level_counts, missed_share
 from ingredient_ner.jsonl import append_jsonl, read_jsonl
-from ingredient_ner.metrics import N_SAMPLES
+from ingredient_ner.metrics import N_SAMPLES, permutation_test
 from ingredient_ner.ner import predict_spans
 from ingredient_ner.paths import DEV_GOLD, MODELS, NER, TEST_GOLD
 from ingredient_ner.recipes import load_recipes
@@ -121,13 +121,17 @@ def main():
               f"{strong['precision']:11.3f} {strong['recall']:6.3f} {strong['fbeta']:6.3f}  {missed:12.1%}")
 
     if args.models:
-        print("\nразность F2 (предупреждения), 95% парный интервал:")
+        print("\nразность F2 предупреждений: 95% интервал — парный бутстреп, p — перестановочный тест")
         baselines = ["словарь", "словарь + фильтр"] + args.models
+        urls = sorted(gold)
+        counts = {name: [level_counts({u: gold[u]}, {u: systems[name].get(u, {})}, "may") for u in urls]
+                  for name in baselines}
         for model in args.models:
             for base in baselines[:baselines.index(model)]:
                 low, high = paired_bootstrap_fbeta(gold, systems[base], systems[model])
+                p_value = permutation_test(counts[base], counts[model], lambda tp, fp, fn: fbeta(tp, fp, fn)["fbeta"])
                 diff = results[model]["may"]["fbeta"] - results[base]["may"]["fbeta"]
-                print(f"  {model} − {base}: {diff:+.3f} [{low:+.3f}, {high:+.3f}]")
+                print(f"  {model} − {base}: {diff:+.3f} [{low:+.3f}, {high:+.3f}]  p = {p_value:.4f}")
 
     if args.split == "test" and args.models:
         append_jsonl(test_log, {"time": datetime.now().isoformat(timespec="seconds"), "model": args.models,

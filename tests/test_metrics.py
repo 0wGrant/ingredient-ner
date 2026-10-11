@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from ingredient_ner.metrics import bootstrap_f1, evaluate, match_spans, paired_bootstrap, prf
+from ingredient_ner.metrics import bootstrap_f1, evaluate, match_spans, paired_bootstrap, permutation_test, prf
 
 
 def span(start, end, **extra):
@@ -120,6 +120,47 @@ class TestBootstrap:
     def test_empty_gold(self):
         with pytest.raises(ValueError):
             bootstrap_f1({}, {})
+
+
+def f1(tp, fp, fn):
+    return prf(tp, fp, fn)["f1"]
+
+
+class TestPermutationTest:
+    good = [(1, 0, 0)] * 20
+    bad = [(0, 1, 1)] * 20
+
+    def test_same_system_gives_one(self):
+        assert permutation_test(self.good, self.good, f1, seed=0) == 1.0
+
+    def test_clear_difference_is_significant(self):
+        assert permutation_test(self.bad, self.good, f1, seed=0) < 0.01
+
+    def test_small_difference_is_not(self):
+        a = [(1, 0, 0)] * 10 + [(0, 1, 1)] * 10
+        b = [(1, 0, 0)] * 11 + [(0, 1, 1)] * 9
+        assert permutation_test(a, b, f1, seed=0) > 0.5
+
+    def test_symmetric_and_seeded(self):
+        a = [(1, 0, 0)] * 12 + [(0, 1, 1)] * 8
+        b = [(1, 0, 0)] * 8 + [(0, 1, 1)] * 12
+        assert permutation_test(a, b, f1, seed=3) == permutation_test(b, a, f1, seed=3)
+        assert 0.0 < permutation_test(a, b, f1, seed=3) <= 1.0
+
+    def test_score_is_used(self):
+        a, b = [(1, 0, 1)] * 10, [(1, 1, 0)] * 10
+        assert permutation_test(a, b, lambda tp, fp, fn: tp / (tp + fn), seed=0) < 0.01
+        assert permutation_test(a, b, f1, seed=0) == 1.0
+
+    def test_global_random_untouched(self):
+        state = random.getstate()
+        permutation_test(self.bad, self.good, f1, seed=424242)
+        assert random.getstate() == state
+
+    @pytest.mark.parametrize("a, b", [([], []), ([(1, 0, 0)], [])])
+    def test_mismatched_or_empty(self, a, b):
+        with pytest.raises(ValueError):
+            permutation_test(a, b, f1)
 
 
 class TestPairedBootstrap:
