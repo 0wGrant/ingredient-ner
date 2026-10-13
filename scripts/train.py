@@ -62,7 +62,8 @@ def main():
     scheduler = get_linear_schedule_with_warmup(optimizer, int(WARMUP_SHARE * total_steps), total_steps)
 
     gold_spans = {record["url"]: record["spans"] for record in dev}
-    linker = Linker({name for recipe in load_recipes() for name in recipe["ingredients"]}, lemmatizer())
+    names = {name for recipe in load_recipes() for name in recipe["ingredients"]}
+    linker = Linker(names, lemmatizer(names))
     table = load_table()
     gold_allergens = gold_levels(read_jsonl(DEV_GOLD), linker, table)
     out_dir = MODELS / run_name(args)

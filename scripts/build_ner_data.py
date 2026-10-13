@@ -29,7 +29,8 @@ def describe(name: str, records: list[dict]) -> None:
 
 def main():
     recipes = load_recipes()
-    matcher = IngredientMatcher({name for recipe in recipes for name in recipe["ingredients"]}, lemmatizer())
+    names = {name for recipe in recipes for name in recipe["ingredients"]}
+    matcher = IngredientMatcher(names, lemmatizer(names))
 
     test = [gold_record(record) for record in read_gold(TEST_GOLD)]
     dev = [gold_record(record) for record in read_gold(DEV_GOLD)]

@@ -64,7 +64,9 @@ def main():
     records = read_jsonl(NER / f"{args.split}.jsonl")
     texts = {record["url"]: record["text"] for record in records}
     gold = {record["url"]: record["spans"] for record in records}
-    found, filtered = predict_dictionary(records, load_recipes(), lemmatizer())
+    recipes = load_recipes()
+    names = {name for recipe in recipes for name in recipe["ingredients"]}
+    found, filtered = predict_dictionary(records, recipes, lemmatizer(names))
     systems = {"словарь": found, "словарь + фильтр": filtered}
     if args.model:
         systems["модель"] = model_predictions(args.model, records, args.batch_size)

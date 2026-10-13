@@ -6,6 +6,7 @@ from pathlib import Path
 from .jsonl import read_jsonl
 from .paths import CANON, RECIPES
 
+WATER = frozenset({"Вода", "Вода газированная", "Вода минеральная"})
 _WS = re.compile(r"\s+")
 _BRACKETS = re.compile(r"\([^)]*\)")
 
@@ -83,6 +84,7 @@ def recipe_text(recipe: dict) -> str:
 
 
 def load_recipes(path: Path = RECIPES, canon_path: Path = CANON) -> list[dict]:
-    """Рецепты с текстами, названия ингредиентов канонические"""
+    """Рецепты с текстами, названия ингредиентов канонические, без воды"""
     canon = json.loads(Path(canon_path).read_text(encoding="utf-8"))
-    return canonicalize_recipes(read_jsonl(path), canon)
+    return [recipe | {"ingredients": {name: amount for name, amount in recipe["ingredients"].items() if name not in WATER}}
+            for recipe in canonicalize_recipes(read_jsonl(path), canon)]

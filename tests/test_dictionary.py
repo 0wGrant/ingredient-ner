@@ -2,8 +2,8 @@ from collections import Counter
 
 import pytest
 
-from ingredient_ner.dictionary import (GENERIC, IngredientMatcher, canonical_names, recipe_coverage, split_by_recipe,
-                                       tokenize)
+from ingredient_ner.dictionary import (FORMS, GENERIC, PARTS, IngredientMatcher, canonical_names, lemmatizer,
+                                       recipe_coverage, split_by_recipe, tokenize)
 
 LEMMAS = {
     "муку": "мука", "муки": "мука",
@@ -58,6 +58,27 @@ class TestTokenize:
 
     def test_no_letters(self):
         assert tokenize("123 ...") == []
+
+
+class TestLemmatizer:
+    def test_parse_with_lemma_from_names_wins(self):
+        lemmatize = lemmatizer(["Белок яичный", "Крупа манная", "Лук репчатый"])
+        assert (lemmatize("белки"), lemmatize("крупу"), lemmatize("лука")) == ("белок", "крупа", "лук")
+
+    def test_first_parse_without_lemma_from_names(self):
+        assert lemmatizer(["Соль"])("белки") == "белка"
+
+    def test_lemmas_of_names_from_nominative_parse(self):
+        assert lemmatizer(["Разрыхлитель теста"])("теста") == "тесто"
+
+    def test_first_nominative_parse_of_name_word(self):
+        assert lemmatizer(["Свинина"])("свинины") == "свинина"
+
+    def test_names_keep_their_lemmas(self):
+        names = ["Белок яичный", "Крупа манная"]
+        matcher = IngredientMatcher(names, lemmatizer(names), {})
+        assert [m["candidates"] for m in matcher.find("Взбить белки, всыпать крупу")] == [["Белок яичный"],
+                                                                                         ["Крупа манная"]]
 
 
 class TestMatcherFind:
@@ -116,6 +137,28 @@ class TestMatcherFind:
         assert exact.find("Всыпать муку") == []
         assert texts(exact.find("Мука просеяна")) == ["Мука"]
 
+    def test_form_gets_candidates_of_its_name(self):
+        matcher = IngredientMatcher(NAMES, lemmatize, {"маслице": "масло"})
+        [mention] = matcher.find("Растопить маслице")
+        assert mention["candidates"] == ["Масло растительное", "Масло сливочное"]
+
+    def test_form_of_full_name(self):
+        matcher = IngredientMatcher(NAMES, lemmatize, {"яичко": "яйцо куриное"})
+        assert matcher.find("Разбить яичко")[0]["candidates"] == ["Яйцо куриное"]
+
+    def test_form_of_unknown_name_is_skipped(self):
+        assert IngredientMatcher(NAMES, lemmatize, {"тыковка": "тыква"}).find("Нарезать тыковка") == []
+
+    def test_default_forms_inflected(self):
+        matcher = IngredientMatcher(["Картофель"], lambda word: {"картошку": "картошка"}.get(word, word))
+        assert matcher.find("Почистить картошку")[0]["candidates"] == ["Картофель"]
+
+    def test_default_forms_part_of_product(self):
+        lemmas = {"соком": "сок", "лимона": "лимон"}
+        matcher = IngredientMatcher(["Сок лимонный"], lambda word: lemmas.get(word, word))
+        assert matcher.find("Сбрызнуть соком лимона") == [{"start": 10, "end": 22, "text": "соком лимона",
+                                                           "candidates": ["Сок лимонный"]}]
+
     def test_names_are_not_lemmatized_again_on_find(self):
         calls = []
 
@@ -166,12 +209,38 @@ class TestSplitByRecipe:
         assert split_by_recipe(mentions, ["Свинина", "Лук"], generic) == (mentions, [])
         assert split_by_recipe(mentions, ["Свинина", "Лук"], {}) == ([], mentions)
 
-    def test_specific_does_not_refer_to_generic(self):
+    def test_specific_refers_to_generic(self):
         mentions = [{"start": 0, "end": 8, "candidates": ["Свинина"]}]
-        assert split_by_recipe(mentions, ["Мясо"], {"Мясо": ["Свинина"]}) == ([], mentions)
+        assert split_by_recipe(mentions, ["Мясо"], {"Мясо": ["Свинина"]}) == (mentions, [])
+        assert split_by_recipe(mentions, ["Мясо"], {}) == ([], mentions)
+
+    def test_specific_needs_every_candidate_under_generic(self):
+        mentions = [{"start": 0, "end": 4, "candidates": ["Фарш мясной", "Фарш рыбный"]}]
+        generic = {"Мясо": ["Фарш мясной"], "Рыба": ["Фарш рыбный"]}
+        assert split_by_recipe(mentions, ["Мясо"], generic) == ([], mentions)
+        assert split_by_recipe(mentions, ["Мясо", "Рыба"], generic) == (mentions, [])
 
     def test_default_table_has_meat(self):
         assert {"Свинина", "Говядина", "Курица"} <= set(GENERIC["Мясо"])
+
+    def test_part_refers_to_whole(self):
+        mentions = [{"start": 0, "end": 6, "candidates": ["Желток яичный"]}]
+        parts = {"Желток яичный": ["Яйцо куриное"]}
+        assert split_by_recipe(mentions, ["Яйцо куриное"], {}, parts) == (mentions, [])
+        assert split_by_recipe(mentions, ["Яйцо куриное"], {}, {}) == ([], mentions)
+
+    def test_whole_refers_to_part(self):
+        mentions = [{"start": 0, "end": 6, "candidates": ["Курица"]}]
+        assert split_by_recipe(mentions, ["Филе куриное"], {}, {"Филе куриное": ["Курица"]}) == (mentions, [])
+        assert split_by_recipe(mentions, ["Филе куриное"], {}, {}) == ([], mentions)
+
+    def test_default_parts_have_eggs(self):
+        assert "Яйцо куриное" in PARTS["Белок яичный"]
+        assert "Яйцо куриное" in PARTS["Желток яичный"]
+
+    def test_default_forms_and_parts_are_strings(self):
+        assert all(isinstance(form, str) and isinstance(name, str) for form, name in FORMS.items())
+        assert all(isinstance(whole, str) for wholes in PARTS.values() for whole in wholes)
 
 
 class TestCanonicalNames:

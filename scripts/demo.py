@@ -49,14 +49,15 @@ def make_handler(analyze_text):
 
 def main():
     parser = argparse.ArgumentParser(description="Страница: ингредиенты и аллергены в тексте блюда")
-    parser.add_argument("--model", default="variant_B_seed13", help="папка в data/models")
+    parser.add_argument("--model", default="variant_B_seed42", help="папка в data/models")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(MODELS / args.model)
     model = AutoModelForTokenClassification.from_pretrained(MODELS / args.model).to(device)
-    linker = Linker({name for recipe in load_recipes() for name in recipe["ingredients"]}, lemmatizer())
+    names = {name for recipe in load_recipes() for name in recipe["ingredients"]}
+    linker = Linker(names, lemmatizer(names))
     table = load_table()
 
     def analyze_text(text: str) -> dict:

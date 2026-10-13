@@ -9,7 +9,15 @@ import pymorphy3
 from .recipes import recipe_text
 
 _LETTERS = re.compile(r"[^\W\d_]+")
-GENERIC = json.loads(Path(__file__).with_name("generic_names.json").read_text(encoding="utf-8"))
+
+
+def _table(name: str) -> dict:
+    return json.loads(Path(__file__).with_name(name).read_text(encoding="utf-8"))
+
+
+GENERIC = _table("generic_names.json")
+PARTS = _table("part_names.json")
+FORMS = _table("word_forms.json")
 
 
 def tokenize(text: str) -> list[tuple[str, int, int]]:
@@ -17,30 +25,44 @@ def tokenize(text: str) -> list[tuple[str, int, int]]:
     return [(m.group().lower().replace("ё", "е"), m.start(), m.end()) for m in _LETTERS.finditer(text)]
 
 
-def lemmatizer():
-    """Лемматизатор pymorphy3 с кэшем"""
+def lemmatizer(names):
+    """Лемматизатор pymorphy3 с кэшем: первый разбор с леммой из названий, иначе первый"""
     morph = pymorphy3.MorphAnalyzer()
+    known = set()
+    for name in names:
+        for token, _start, _end in tokenize(name):
+            nominative = next((parse for parse in morph.parse(token) if parse.tag.case == "nomn"), None)
+            if nominative:
+                known.add(nominative.normal_form)
 
     @cache
     def lemmatize(word: str) -> str:
-        return morph.parse(word)[0].normal_form
+        lemmas = [parse.normal_form for parse in morph.parse(word)]
+        return next((lemma for lemma in lemmas if lemma in known), lemmas[0])
 
     return lemmatize
 
 
 class IngredientMatcher:
-    """Поиск названий справочника в тексте по леммам"""
+    """Поиск названий справочника в тексте по леммам; форма слова находит то же, что её название"""
 
-    def __init__(self, names, lemmatize):
+    def __init__(self, names, lemmatize, forms: dict = FORMS):
         self._lemmatize = lemmatize
         self._index = {}
         for name in names:
-            lemmas = [lemmatize(token) for token, _start, _end in tokenize(name)]
+            lemmas = self._lemmas(name)
             if not lemmas:
                 continue
             self._index.setdefault(tuple(sorted(lemmas)), set()).add(name)
             self._index.setdefault((lemmas[0],), set()).add(name)
+        for form, name in forms.items():
+            found = self._index.get(tuple(sorted(self._lemmas(name))))
+            if found:
+                self._index.setdefault(tuple(sorted(self._lemmas(form))), set()).update(found)
         self._max_key_len = max((len(key) for key in self._index), default=0)
+
+    def _lemmas(self, text: str) -> list[str]:
+        return [self._lemmatize(token) for token, _start, _end in tokenize(text)]
 
     def find(self, text: str) -> list[dict]:
         """Упоминания: start, end, text, candidates"""
@@ -76,13 +98,25 @@ def canonical_names(freq: Counter, lemmatize) -> dict[str, str]:
     return canon
 
 
-def split_by_recipe(mentions: list[dict], ingredients, generic: dict = GENERIC) -> tuple[list[dict], list[dict]]:
-    """Находки со ссылкой на состав рецепта и остальные; общее название ссылается и на свои частные"""
+def split_by_recipe(mentions: list[dict], ingredients, generic: dict = GENERIC,
+                    parts: dict = PARTS) -> tuple[list[dict], list[dict]]:
+    """Находки со ссылкой на состав и остальные: общее → частное, часть ↔ целое, все кандидаты частные → общее"""
     ingredients = set(ingredients)
+    broader, contained = {}, {}
+    for general, specifics in generic.items():
+        for name in specifics:
+            broader.setdefault(name, set()).add(general)
+    for part, wholes in parts.items():
+        for whole in wholes:
+            contained.setdefault(whole, set()).add(part)
     kept, dropped = [], []
     for mention in mentions:
-        names = set(mention["candidates"]).union(*(generic.get(name, ()) for name in mention["candidates"]))
-        (kept if ingredients & names else dropped).append(mention)
+        candidates = mention["candidates"]
+        names = set(candidates).union(*(generic.get(name, ()) for name in candidates),
+                                      *(parts.get(name, ()) for name in candidates),
+                                      *(contained.get(name, ()) for name in candidates))
+        specific = bool(candidates) and all(ingredients & broader.get(name, set()) for name in candidates)
+        (kept if ingredients & names or specific else dropped).append(mention)
     return kept, dropped
 
 

@@ -1,7 +1,8 @@
+import json
 from collections import Counter
 
 from ingredient_ner.recipes import (build_ingredient_vocab, canonicalize_recipes, clean_ingredient_name, clean_recipes,
-                                    dedupe_recipes, filter_recipes, normalize_text, recipe_text)
+                                    dedupe_recipes, filter_recipes, load_recipes, normalize_text, recipe_text)
 
 
 def recipe(name, ingredients, text=""):
@@ -175,6 +176,16 @@ class TestCanonicalizeRecipes:
         recipes = [{"ingredients": {"Сливочное масло": "50 г"}}]
         canonicalize_recipes(recipes, self.CANON)
         assert recipes == [{"ingredients": {"Сливочное масло": "50 г"}}]
+
+
+class TestLoadRecipes:
+    def test_water_is_not_an_ingredient(self, tmp_path):
+        path, canon = tmp_path / "recipes.jsonl", tmp_path / "canon.json"
+        ingredients = {"Вода": "1 ст.", "Сливочное масло": "50 г", "Вода минеральная": "", "Вода розовая": ""}
+        path.write_text(json.dumps({"url": "u", "ingredients": ingredients}, ensure_ascii=False) + "\n", encoding="utf-8")
+        canon.write_text(json.dumps({"Сливочное масло": "Масло сливочное"}, ensure_ascii=False), encoding="utf-8")
+        [result] = load_recipes(path, canon)
+        assert result["ingredients"] == {"Масло сливочное": "50 г", "Вода розовая": ""}
 
 
 class TestRecipeText:

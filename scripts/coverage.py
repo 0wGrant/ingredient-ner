@@ -13,7 +13,7 @@ def main():
     recipes = load_recipes()
     names = {name for recipe in recipes for name in recipe["ingredients"]}
     exact = share_found(recipes, IngredientMatcher(names, lambda word: word))
-    lemmas = share_found(recipes, IngredientMatcher(names, lemmatizer()))
+    lemmas = share_found(recipes, IngredientMatcher(names, lemmatizer(names)))
     print(f"рецептов {len(recipes)}, названий {len(names)}; найдено как есть {exact:.1%}, по леммам {lemmas:.1%}")
 
 

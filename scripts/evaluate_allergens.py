@@ -86,9 +86,10 @@ def main():
 
     records = read_jsonl(NER / f"{args.split}.jsonl")
     annotated = read_jsonl(DEV_GOLD if args.split == "dev" else TEST_GOLD)
-    lemmatize = lemmatizer()
     recipes = load_recipes()
-    linker = Linker({name for recipe in recipes for name in recipe["ingredients"]}, lemmatize)
+    names = {name for recipe in recipes for name in recipe["ingredients"]}
+    lemmatize = lemmatizer(names)
+    linker = Linker(names, lemmatize)
     table = load_table()
 
     report_statuses(annotated)
